@@ -1,11 +1,15 @@
 import crypto from 'node:crypto';
 
 function getEncryptionKey() {
-  const raw = process.env.APP_ENCRYPTION_KEY;
-  if (!raw) throw new Error('Missing APP_ENCRYPTION_KEY');
-  const key = Buffer.from(raw, 'hex');
-  if (key.length !== 32) throw new Error('APP_ENCRYPTION_KEY must be 64 hex characters (32 bytes).');
-  return key;
+  const raw = process.env.APP_ENCRYPTION_KEY?.trim();
+  if (!raw) throw new Error('APP_ENCRYPTION_KEY_MISSING');
+  if (!/^[0-9a-fA-F]{64}$/.test(raw)) throw new Error('APP_ENCRYPTION_KEY_INVALID: phải là đúng 64 ký tự hex.');
+  return Buffer.from(raw, 'hex');
+}
+
+export function validateEncryptionKey() {
+  getEncryptionKey();
+  return true;
 }
 
 export function encryptSecret(value: string) {

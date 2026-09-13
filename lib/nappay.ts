@@ -16,7 +16,7 @@ export type NappayResponse = {
 };
 
 function md5(value: string) {
-  return crypto.createHash('md5').update(value).digest('hex');
+  return crypto.createHash('md5').update(value, 'utf8').digest('hex');
 }
 
 export function makeChargingSign(args: { partnerKey: string; code: string; command: string; partnerId: string; requestId: string; serial: string; telco: string; }) {
@@ -28,17 +28,32 @@ export function makeCheckSign(args: { partnerKey: string; command: string; partn
 }
 
 export async function nappayRequest(payload: Record<string, string>) {
-  const endpoint = process.env.NAPPAY_ENDPOINT || 'https://app.nappay.vn/chargingws/v2';
-  const res = await fetch(endpoint, {
-    method: 'POST',
-    headers: { 'content-type': 'application/x-www-form-urlencoded' },
-    body: new URLSearchParams(payload).toString(),
-    cache: 'no-store'
-  });
-  const text = await res.text();
-  let data: NappayResponse;
-  try { data = JSON.parse(text); } catch { throw new Error(`NAPPAY returned non-JSON (${res.status})`); }
-  return { httpStatus: res.status, data };
+  // Endpoint theo tài liệu Charging v2 hiện tại của NAPPAY.
+  const endpoint = process.env.NAPPAY_ENDPOINT?.trim() || 'https://nappay.vn/chargingws/v2';
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 20000);
+  try {
+    const res = await fetch(endpoint, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/x-www-form-urlencoded',
+        'accept': 'application/json,text/plain,*/*',
+      },
+      body: new URLSearchParams(payload).toString(),
+      cache: 'no-store',
+      signal: controller.signal,
+    });
+    const text = await res.text();
+    let data: NappayResponse;
+    try {
+      data = JSON.parse(text) as NappayResponse;
+    } catch {
+      throw new Error(`NAPPAY_NON_JSON_HTTP_${res.status}`);
+    }
+    return { httpStatus: res.status, data };
+  } finally {
+    clearTimeout(timeout);
+  }
 }
 
 export function statusLabel(status: number) {

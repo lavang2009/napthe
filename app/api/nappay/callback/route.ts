@@ -6,6 +6,8 @@ import crypto from 'node:crypto';
 export const runtime = 'nodejs';
 function md5(value: string) { return crypto.createHash('md5').update(value).digest('hex'); }
 async function readBody(req: NextRequest) { const type = req.headers.get('content-type') || ''; if (type.includes('application/json')) return await req.json(); return Object.fromEntries(new URLSearchParams(await req.text()).entries()); }
+export async function GET() { return NextResponse.json({ ok: true, message: 'NAPPAY callback endpoint is online. Use POST for callbacks.' }); }
+
 export async function POST(req: NextRequest) {
   try {
     const body = await readBody(req); const requestId = String(body.request_id || '').trim(); const callbackSign = String(body.callback_sign || body.sign || '').trim().toLowerCase();
