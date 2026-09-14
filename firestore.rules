@@ -5,10 +5,13 @@ service cloud.firestore {
       allow read: if request.auth != null && request.auth.uid == uid;
       allow create, update, delete: if false;
     }
+
+    // All transaction reads/writes go through server-side Admin SDK APIs.
+    // This prevents clients from reading encrypted card payloads or modifying balances.
     match /cardTransactions/{transactionId} {
-      allow read: if request.auth != null && resource.data.uid == request.auth.uid;
-      allow create, update, delete: if false;
+      allow read, write: if false;
     }
+
     match /{document=**} {
       allow read, write: if false;
     }

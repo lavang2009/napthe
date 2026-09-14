@@ -7,7 +7,10 @@ function encryptionKey() {
   return Buffer.from(raw, 'hex');
 }
 
-export function validateEncryptionKey() { encryptionKey(); return true; }
+export function validateEncryptionKey() {
+  encryptionKey();
+  return true;
+}
 
 export function encryptSecret(value: string) {
   const iv = crypto.randomBytes(12);
@@ -32,10 +35,17 @@ export function md5(value: string) {
   return crypto.createHash('md5').update(value, 'utf8').digest('hex');
 }
 
+export function cardFingerprint(telco: string, serial: string, code: string) {
+  const key = encryptionKey();
+  return crypto.createHmac('sha256', key).update(`${telco}|${serial}|${code}`, 'utf8').digest('hex');
+}
+
 export function safeEqualHex(a: string, b: string) {
   try {
     const ab = Buffer.from(a, 'hex');
     const bb = Buffer.from(b, 'hex');
     return ab.length === bb.length && crypto.timingSafeEqual(ab, bb);
-  } catch { return false; }
+  } catch {
+    return false;
+  }
 }

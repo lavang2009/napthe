@@ -1,56 +1,81 @@
 # NAPPAY Card Topup — Vercel + Firebase
 
-Bản production mẫu cho luồng: Firebase Auth → NAPPAY Charging v2 → callback/check → Firestore transaction → cộng balance.
+Production-oriented sample for:
 
-## 1. Firebase
+Firebase Auth → NAPPAY Charging v2 → callback/check → Firestore transaction → one-time balance credit.
 
-Bật Authentication → Sign-in method → Email/Password.
+## Main protections
 
-Tạo Firestore Database và deploy `firestore.rules`.
+- Email/password Firebase authentication.
+- NAPPAY Partner Key stays server-side.
+- Card code and serial are encrypted at rest with AES-256-GCM.
+- Firestore client writes are disabled for balances and transactions.
+- Balance credit runs in one Firestore transaction and is idempotent.
+- Both NAPPAY callback and active `check` can resolve `99 → 1`.
+- Network errors are stored as `provider_unknown` instead of falsely declaring failure. The same request ID is then checked later.
+- NAPPAY endpoint fallback: `app.nappay.vn` then `nappay.vn`.
+- API logs never print Partner Key or card PIN.
 
-Tạo Service Account để lấy `FIREBASE_PROJECT_ID`, `FIREBASE_CLIENT_EMAIL`, `FIREBASE_PRIVATE_KEY`.
+## Firebase
 
-## 2. NAPPAY
+1. Enable Authentication → Email/Password.
+2. Create Firestore.
+3. Deploy `firestore.rules`.
+4. Create a Firebase Admin service account and set the Admin environment variables.
 
-Tạo kết nối API loại **Đổi thẻ cào**, method `POST`, callback:
+## NAPPAY
+
+Create Merchant API of type **Đổi thẻ cào**, method `POST`, with callback:
 
 `https://YOUR-DOMAIN.vercel.app/api/nappay/callback`
 
-Charging endpoint mặc định:
+NAPPAY documents the Charging v2 endpoint as:
 
 `https://app.nappay.vn/chargingws/v2`
 
-## 3. Environment Variables
+and also documents `https://nappay.vn/chargingws/v2` as the root-domain variant. This project tries the root-domain endpoint first and falls back to the app subdomain if the first connection fails. The request uses `POST` and supports `application/x-www-form-urlencoded` or JSON. citehttps://app.nappay.vn/tai-lieu-api
 
-Copy `.env.example` thành `.env.local` khi chạy local hoặc nhập cùng các biến vào Vercel.
+## Environment variables
 
-Tạo khóa AES-256:
+Copy `.env.example` to `.env.local` for local development, or configure the same values in Vercel.
+
+Generate a 32-byte AES key:
 
 `node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"`
 
-Không đưa `NAPPAY_PARTNER_KEY`, `FIREBASE_PRIVATE_KEY` hoặc `APP_ENCRYPTION_KEY` vào frontend.
+Never expose:
 
-## 4. Chạy
+- `NAPPAY_PARTNER_KEY`
+- `FIREBASE_PRIVATE_KEY`
+- `APP_ENCRYPTION_KEY`
+
+## Run
 
 `npm install`
 
 `npm run dev`
 
-## 5. Production flow
-
-- User đăng ký/đăng nhập bằng Firebase Email/Password.
-- Frontend gửi ID token trong `Authorization: Bearer ...`.
-- Server tạo `cardTransactions/{requestId}` trước khi gọi NAPPAY.
-- Charging v2 dùng sign `md5(partner_key + code + command + partner_id + request_id + serial + telco)`.
-- Nếu NAPPAY trả `99`, frontend tự gọi `/api/check` định kỳ.
-- Nếu NAPPAY hoặc callback trả `1`, server dùng Firestore transaction để cộng tiền đúng một lần.
-- Callback xác minh `callback_sign = md5(partner_key + code + serial)`.
-- Admin đọc giao dịch qua server-side API; client không có quyền ghi balance/transaction.
-
-## 6. Kiểm tra
+## Health check
 
 `GET /api/health`
 
-`GET /api/nappay/callback` → endpoint kiểm tra bằng trình duyệt; callback thật dùng POST.
+It checks Firebase client/admin variables, NAPPAY credentials, encryption key and displays configured NAPPAY hosts.
 
-`/api/charge` và `/api/check` phải gọi bằng POST.
+## Callback
+
+`GET /api/nappay/callback` returns an online message for browser testing.
+
+Real NAPPAY callbacks must use `POST`.
+
+## Charging
+
+`POST /api/charge` with a Firebase Bearer token.
+
+If the provider returns `99`, the client checks `/api/check` automatically. If NAPPAY returns `1`, the server uses a Firestore transaction to credit `amount` exactly once.
+
+
+## If `/api/charge` returns network errors
+
+`GET /api/charge` only proves the Vercel route is online. A real card submission uses `POST /api/charge`. The server tries both documented NAPPAY Charging v2 hosts. If the provider connection fails before an HTTP response arrives, the transaction is marked `PROVIDER_UNKNOWN` and can be resolved later with `POST /api/check` instead of blindly resubmitting the card.
+
+If NAPPAY has IP whitelist enabled for Merchant ID 916, the NAPPAY Merchant settings must allow the server that sends the request. Do not expose secrets in the browser or GitHub.
