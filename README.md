@@ -1,57 +1,56 @@
-# NAPPAY Card Topup — Vercel Complete Demo
+# NAPPAY Card Topup — Vercel + Firebase
 
-Next.js + Firebase Auth + Firestore + Firebase Admin + NAPPAY Charging API v2.
+Bản production mẫu cho luồng: Firebase Auth → NAPPAY Charging v2 → callback/check → Firestore transaction → cộng balance.
 
-## Tính năng
-- Đăng ký/đăng nhập Email + Password.
-- Mỗi giao dịch gắn với UID người dùng.
-- Gửi thẻ qua NAPPAY ở server.
-- Tự kiểm tra giao dịch pending (99) định kỳ ở client; khi 99 -> 1 sẽ cộng tiền.
-- NAPPAY callback `/api/nappay/callback` cũng có thể cộng tiền.
-- Chống cộng trùng bằng Firestore transaction trên `cardTransactions/{requestId}`.
-- Lịch sử giao dịch người dùng.
-- Admin dashboard `/admin` qua `ADMIN_EMAILS`.
-- Không cho client ghi `users.balance` hoặc `cardTransactions`.
+## 1. Firebase
 
-## Firebase
-1. Authentication -> Sign-in providers -> Email/Password -> Enable.
-2. Firestore Database.
-3. Service account cho Firebase Admin.
-4. Deploy `firestore.rules`.
+Bật Authentication → Sign-in method → Email/Password.
 
-## NAPPAY
-Endpoint mặc định: `https://app.nappay.vn/chargingws/v2`
+Tạo Firestore Database và deploy `firestore.rules`.
 
-Charging sign:
-`md5(partner_key + code + command + partner_id + request_id + serial + telco)`
+Tạo Service Account để lấy `FIREBASE_PROJECT_ID`, `FIREBASE_CLIENT_EMAIL`, `FIREBASE_PRIVATE_KEY`.
 
-Check sign:
-`md5(partner_key + command + partner_id + request_id)`
+## 2. NAPPAY
 
-Callback sign:
-`md5(partner_key + code + serial)`
+Tạo kết nối API loại **Đổi thẻ cào**, method `POST`, callback:
 
-NAPPAY phải kích hoạt API cho Merchant theo tài liệu chính thức.
+`https://YOUR-DOMAIN.vercel.app/api/nappay/callback`
 
-## Environment
-Xem `.env.example`. `NAPPAY_PARTNER_KEY`, `FIREBASE_PRIVATE_KEY`, `APP_ENCRYPTION_KEY` chỉ đặt server-side.
+Charging endpoint mặc định:
 
-## Local
-```bash
-npm install
-npm run dev
-```
+`https://app.nappay.vn/chargingws/v2`
 
-## Vercel
-Import repository, chọn framework Next.js, khai báo Environment Variables rồi redeploy.
+## 3. Environment Variables
 
+Copy `.env.example` thành `.env.local` khi chạy local hoặc nhập cùng các biến vào Vercel.
 
-## Khắc phục lỗi không đăng ký được
+Tạo khóa AES-256:
 
-1. Firebase Console → Authentication → Sign-in providers → bật Email/Password.
-2. Tạo `.env.local` từ `.env.example` và điền đúng Firebase Web App config.
-3. Điền Firebase Admin credentials và NAPPAY credentials ở server.
-4. Khởi động lại `npm run dev` sau khi đổi `.env.local`.
-5. Có thể mở `/api/health` để kiểm tra server đã nhận đủ cấu hình: `firebaseClient`, `firebaseAdmin`, `nappay` đều phải là `true`.
+`node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"`
 
-Tài khoản Firebase được tạo ở frontend trước; việc tạo hồ sơ Firestore là bước đồng bộ riêng nên lỗi server không làm tài khoản vừa tạo bị mất.
+Không đưa `NAPPAY_PARTNER_KEY`, `FIREBASE_PRIVATE_KEY` hoặc `APP_ENCRYPTION_KEY` vào frontend.
+
+## 4. Chạy
+
+`npm install`
+
+`npm run dev`
+
+## 5. Production flow
+
+- User đăng ký/đăng nhập bằng Firebase Email/Password.
+- Frontend gửi ID token trong `Authorization: Bearer ...`.
+- Server tạo `cardTransactions/{requestId}` trước khi gọi NAPPAY.
+- Charging v2 dùng sign `md5(partner_key + code + command + partner_id + request_id + serial + telco)`.
+- Nếu NAPPAY trả `99`, frontend tự gọi `/api/check` định kỳ.
+- Nếu NAPPAY hoặc callback trả `1`, server dùng Firestore transaction để cộng tiền đúng một lần.
+- Callback xác minh `callback_sign = md5(partner_key + code + serial)`.
+- Admin đọc giao dịch qua server-side API; client không có quyền ghi balance/transaction.
+
+## 6. Kiểm tra
+
+`GET /api/health`
+
+`GET /api/nappay/callback` → endpoint kiểm tra bằng trình duyệt; callback thật dùng POST.
+
+`/api/charge` và `/api/check` phải gọi bằng POST.

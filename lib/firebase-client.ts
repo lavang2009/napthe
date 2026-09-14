@@ -9,5 +9,6 @@ const config = {
   messagingSenderId: process.env.NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID,
   appId: process.env.NEXT_PUBLIC_FIREBASE_APP_ID,
 };
+
 const app = getApps().length ? getApp() : initializeApp(config);
 export const auth = getAuth(app);
