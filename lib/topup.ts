@@ -149,11 +149,23 @@ export async function checkProvider(requestId: string) {
   const partnerKey = process.env.NAPPAY_PARTNER_KEY?.trim();
   if (!partnerId || !partnerKey) throw new Error('NAPPAY_NOT_CONFIGURED');
 
+  const ref = db().collection('cardTransactions').doc(requestId);
+  const snap = await ref.get();
+  if (!snap.exists) throw new Error('TRANSACTION_NOT_FOUND');
+  const tx = snap.data() || {};
+  const preferredEndpoint = typeof tx.providerEndpoint === 'string' ? tx.providerEndpoint.trim() : undefined;
+
   const sign = checkSign({ partnerKey, partnerId, requestId });
-  const result = await nappayRequest({ command: 'check', partner_id: partnerId, request_id: requestId, sign });
+  const result = await nappayRequest(
+    { command: 'check', partner_id: partnerId, request_id: requestId, sign },
+    preferredEndpoint,
+  );
   const data = result.data;
 
-  await saveProviderState(requestId, data, { lastCheckedAt: FieldValue.serverTimestamp(), providerEndpoint: result.endpoint });
+  await saveProviderState(requestId, data, {
+    lastCheckedAt: FieldValue.serverTimestamp(),
+    providerEndpoint: result.endpoint,
+  });
   const credit = await creditIfValid(requestId, data);
   return { ...result, credit };
 }

@@ -16,8 +16,10 @@ export type NappayResponse = {
 };
 
 const DEFAULT_ENDPOINTS = [
-  'https://nappay.vn/chargingws/v2',
+  // Current NAPPAY Charging v2 endpoint from the Merchant API documentation.
   'https://app.nappay.vn/chargingws/v2',
+  // Legacy/fallback host kept only for compatibility.
+  'https://nappay.vn/chargingws/v2',
 ];
 
 function md5(value: string) {
@@ -70,11 +72,16 @@ function networkErrorMessage(error: unknown) {
   return 'NETWORK_ERROR';
 }
 
-export async function nappayRequest(payload: Record<string, string>) {
+export async function nappayRequest(payload: Record<string, string>, preferredEndpoint?: string) {
   const timeoutMs = Math.min(Math.max(Number(process.env.NAPPAY_TIMEOUT_MS || 15000), 5000), 30000);
   const attempts: Array<{ endpoint: string; error?: string; httpStatus?: number; status?: number | string }> = [];
 
-  for (const endpoint of endpoints()) {
+  const allEndpoints = endpoints();
+  const orderedEndpoints = preferredEndpoint
+    ? [preferredEndpoint, ...allEndpoints.filter((endpoint) => endpoint !== preferredEndpoint)]
+    : allEndpoints;
+
+  for (const endpoint of orderedEndpoints) {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), timeoutMs);
     try {
@@ -100,7 +107,15 @@ export async function nappayRequest(payload: Record<string, string>) {
       }
 
       attempts.push({ endpoint, httpStatus: res.status, status: data.status });
-      if (res.status >= 500 && endpoints().length > 1) continue;
+
+      // A stateful check can legitimately return 101 on one host when the original
+      // charging request was recorded by the other host. Try the next host for CHECK
+      // before accepting TRANSACTION_NOT_FOUND. Never do this for CHARGING.
+      if (payload.command === 'check' && Number(data.status) === 101 && orderedEndpoints.length > 1) {
+        continue;
+      }
+
+      if (res.status >= 500 && orderedEndpoints.length > 1) continue;
       return { httpStatus: res.status, data, endpoint, attempts };
     } catch (error) {
       const message = networkErrorMessage(error);
